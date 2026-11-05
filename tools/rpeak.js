@@ -679,7 +679,10 @@
     ctx.fillStyle = _cc.label();
     ctx.font = '11px ui-sans-serif, system-ui';
     ctx.textBaseline = 'top';
-    ctx.fillText('ECG (synthetic) — green: signal · open circles: truth · red: detected', 8, 6);
+    { // shorter title on narrow canvases so it is never cut off
+      const t = 'ECG (synthetic) — green: signal · open circles: truth · red: detected';
+      ctx.fillText(ctx.measureText(t).width + 16 < W ? t : 'ECG · ○ truth · ● detected', 8, 6);
+    }
   }
 
   function drawFeaturePanel(integ, n, t1Trace, t2Trace, detIdxs) {
@@ -744,7 +747,10 @@
     ctx.fillStyle = _cc.label();
     ctx.font = '11px ui-sans-serif, system-ui';
     ctx.textBaseline = 'top';
-    ctx.fillText('Pan–Tompkins integrator — dashed: TH1 (NPKI + 0.25·(SPKI−NPKI))   ·   dotted: TH2 (0.5·TH1)', 8, 6);
+    {
+      const t = 'Pan–Tompkins integrator — dashed: TH1 (NPKI + 0.25·(SPKI−NPKI))   ·   dotted: TH2 (0.5·TH1)';
+      ctx.fillText(ctx.measureText(t).width + 16 < W ? t : 'integrator · dashed TH1 · dotted TH2', 8, 6);
+    }
   }
 
   /* --------------------------------------------------------------------- */
@@ -764,6 +770,10 @@
   if (section && 'IntersectionObserver' in window) {
     const io = new IntersectionObserver((entries) => {
       for (const e of entries) running = e.isIntersecting;
+      if (running && !rafId && !reduceMotion && !document.hidden) {
+        lastWallT = performance.now();
+        rafId = requestAnimationFrame(step);
+      }
     }, { threshold: 0.05 });
     io.observe(section);
   }
@@ -789,15 +799,19 @@
   const samplesPerFrame = Math.max(1, Math.round(Fs / 60));   // ≈4 @60 Hz
   let lastWallT = performance.now();
 
+  // Off-screen (or hidden tab) the loop stops scheduling frames entirely; the
+  // IntersectionObserver / visibilitychange handlers restart it.
   function step() {
+    if (!running) { rafId = 0; return; }
     rafId = requestAnimationFrame(step);
-    if (!running) { lastWallT = performance.now(); return; }
-    const now = performance.now();
-    let dtMs = now - lastWallT; lastWallT = now;
-    if (dtMs > 80) dtMs = 80;            // cap on long stalls
-
+    lastWallT = performance.now();
     // We push exactly samplesPerFrame samples to keep the X-axis smooth.
-    const nNew = samplesPerFrame;
+    generate(samplesPerFrame);
+    analyzeAndDraw();
+  }
+
+  // Append nNew generated samples to the sliding window.
+  function generate(nNew) {
 
     // Read UI
     const hrBpm   = getHR();
@@ -842,6 +856,11 @@
 
     absT += nNew / Fs;
     firstSampleT = absT - WINDOW_SEC;
+  }
+
+  // Run the detector over the current window, then draw panels + readouts.
+  function analyzeAndDraw() {
+    const hrBpm = getHR();
 
     // ---- Detector pipeline (over current 10 s window) ------------------
     applyBandpass(scratchBP, ecgBuf, WIN);
@@ -890,16 +909,34 @@
     if (ui.snr)      ui.snr.textContent      = `${fmt(snr.mean, 1)} ± ${fmt(snr.sd, 1)} dB`;
   }
 
+  // prefers-reduced-motion: no streaming. Fill one full window in a single
+  // pass, draw it once, and redraw a fresh static window when a control changes.
+  function renderStatic() {
+    reset();
+    generate(WIN);
+    analyzeAndDraw();
+  }
+
   // Kick off
-  reset();
-  rafId = requestAnimationFrame(step);
+  if (reduceMotion) {
+    requestAnimationFrame(renderStatic);
+    document.querySelectorAll('#rpeak input, #rpeak select').forEach(el =>
+      el.addEventListener('input', () => requestAnimationFrame(renderStatic)));
+    if (ui.reset) ui.reset.addEventListener('click', () => requestAnimationFrame(renderStatic));
+    document.addEventListener('themechange', () => requestAnimationFrame(analyzeAndDraw));
+    // Resizing a canvas clears it; redraw the static window afterwards.
+    window.addEventListener('resize', () => requestAnimationFrame(analyzeAndDraw));
+  } else {
+    reset();
+    rafId = requestAnimationFrame(step);
+  }
 
   // -- Visibility hide → pause RAF entirely (saves cycles)
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       if (rafId) cancelAnimationFrame(rafId);
       rafId = 0;
-    } else if (!rafId) {
+    } else if (!rafId && running && !reduceMotion) {
       lastWallT = performance.now();
       rafId = requestAnimationFrame(step);
     }

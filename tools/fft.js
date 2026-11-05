@@ -514,6 +514,8 @@
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
         for (let f = 0; f <= fmax + 0.001; f += labelStep) {
+            // leave the right end free for the "Hz" unit
+            if (fToPx(f) > padL + plotW - 26) continue;
             ctx.fillText(`${f}`, fToPx(f), padT + plotH + 4);
         }
         ctx.textAlign = 'right';
@@ -537,8 +539,9 @@
         ctx.fillStyle = '#ff375f';
         ctx.lineWidth = 1;
         ctx.font = '11px -apple-system, system-ui, sans-serif';
-        ctx.textAlign = 'center';
+        ctx.textAlign = 'left';
         ctx.textBaseline = 'bottom';
+        const placed = [];   // label boxes already drawn, to avoid overlaps
         for (const p of peaks) {
             const x = fToPx(p.freq);
             const y = dBToPx(p.dB);
@@ -550,8 +553,14 @@
             ctx.lineTo(x, padT + plotH);
             ctx.stroke();
             const label = `${p.freq.toFixed(1)} Hz`;
-            const ty = Math.max(padT + 10, y - 6);
-            ctx.fillText(label, x, ty);
+            const w = ctx.measureText(label).width;
+            // just right of the marker line, clamped inside the plot
+            const lx = Math.min(Math.max(x + 5, padL + 2), padL + plotW - w - 2);
+            let ty = Math.max(padT + 12, y - 6);
+            // step down a line while this label would collide with one already placed
+            while (placed.some(b => lx < b.x + b.w + 6 && b.x < lx + w + 6 && Math.abs(b.y - ty) < 13)) ty += 13;
+            placed.push({ x: lx, y: ty, w });
+            ctx.fillText(label, lx, ty);
         }
     }
 

@@ -524,7 +524,8 @@
     if (!cachedSim) return;
     const { ctx, W, H } = cuffCV;
     const sim = cachedSim;
-    const padL = 38, padR = 12, padT = 12, padB = 26;
+    // padT leaves a full line for the title so it never touches the 200 tick.
+    const padL = 38, padR = 12, padT = 24, padB = 26;
     const plotW = W - padL - padR;
     const plotH = H - padT - padB;
 
@@ -544,8 +545,6 @@
       ctx.strokeStyle = _cc.grid();
       ctx.beginPath(); ctx.moveTo(padL, yy + 0.5); ctx.lineTo(W - padR, yy + 0.5); ctx.stroke();
     });
-    ctx.fillStyle = _cc.labelDim();
-    ctx.fillText('mmHg', 4, padT - 2);
 
     // x-axis: time 0..dur seconds
     const tMax = sim.dur;
@@ -623,10 +622,17 @@
     // title strip
     ctx.fillStyle = _cc.label();
     ctx.font = '11px JetBrains Mono, Consolas, monospace';
-    ctx.fillText('cuff pressure during deflation (raw transducer signal)', padL, padT - 2);
-    // legend for the volume-oscillation overlay
-    ctx.fillStyle = 'rgba(10,132,255,0.95)';
-    ctx.fillText('— arterial volume oscillation (a.u., amplified)', W - padR - 250, padT - 2);
+    const title = 'cuff pressure (mmHg) during deflation';
+    ctx.fillText(title, 4, 12);
+    // legend for the volume-oscillation overlay: right-aligned, and only when
+    // it fits beside the title (narrow phones drop it rather than overlap).
+    const legend = '— arterial volume oscillation (a.u.)';
+    if (ctx.measureText(title).width + ctx.measureText(legend).width + 24 < W) {
+      ctx.fillStyle = 'rgba(10,132,255,0.95)';
+      ctx.textAlign = 'right';
+      ctx.fillText(legend, W - padR, 12);
+      ctx.textAlign = 'left';
+    }
   }
 
   function drawEnvelope() {
@@ -663,7 +669,6 @@
       ctx.strokeStyle = _cc.grid();
       ctx.beginPath(); ctx.moveTo(padL, yy + 0.5); ctx.lineTo(W - padR, yy + 0.5); ctx.stroke();
     }
-    ctx.fillText('A (a.u.)', 4, padT - 4);
 
     // x-axis ticks
     [50, 80, 100, 120, 150, 180].forEach(Pc => {
@@ -673,8 +678,6 @@
         ctx.fillText(Pc + '', xx - 8, H - 8);
       }
     });
-    ctx.fillStyle = _cc.labelDim();
-    ctx.fillText('cuff pressure (mmHg)', W - padR - 130, H - 8);
 
     // threshold horizontal lines for fixed-ratio
     if (p.method === 'fixed') {
@@ -733,6 +736,9 @@
     }
 
     // ----- vertical markers -----------------------------------------------
+    // Label boxes already drawn; a label that would overlap one steps away
+    // (down for top labels, up for bottom ones) so narrow screens stay legible.
+    const placedLabels = [];
     function vline(Pc, color, label, dashed, labelTop) {
       if (!isFinite(Pc) || Pc < ENV_PMIN || Pc > ENV_PMAX) return;
       const xx = xToPx(Pc);
@@ -746,8 +752,13 @@
       ctx.setLineDash([]);
       ctx.fillStyle = color;
       ctx.font = '11px JetBrains Mono, Consolas, monospace';
-      const ty = labelTop ? padT + 11 : H - padB - 6;
-      ctx.fillText(label, xx + 3, ty);
+      const w = ctx.measureText(label).width;
+      const lx = Math.min(xx + 3, W - padR - w);
+      let ty = labelTop ? padT + 11 : H - padB - 6;
+      const step = labelTop ? 12 : -12;
+      while (placedLabels.some(b => lx < b.x + b.w + 4 && b.x < lx + w + 4 && Math.abs(b.y - ty) < 11)) ty += step;
+      placedLabels.push({ x: lx, y: ty, w });
+      ctx.fillText(label, lx, ty);
     }
 
     // True MAP = envelope peak = zero transmural pressure = (SBP+DBP)/2 here.
@@ -767,7 +778,9 @@
     // panel title
     ctx.fillStyle = _cc.label();
     ctx.font = '11px JetBrains Mono, Consolas, monospace';
-    ctx.fillText('extracted oscillogram envelope (sigmoid model, c = ' + p.cstiff + ')', padL, padT - 4);
+    const long = 'envelope A (a.u.) vs cuff pressure (mmHg) · sigmoid model, c = ' + p.cstiff;
+    const short = 'A (a.u.) vs cuff pressure (mmHg)';
+    ctx.fillText(ctx.measureText(long).width + 8 < W ? long : short, 4, 12);
   }
 
   function redraw() {
