@@ -650,11 +650,12 @@
         const freqs = new Float64Array(half);
         for (let i = 0; i < half; i++) freqs[i] = i * Fs / N;
 
-        const peaks = findPeaks(dB, freqs, 3);
+        // THD confidence compares the dominant peak with the fourth strongest.
+        const peaks = findPeaks(dB, freqs, 4);
         const thd = computeTHD(X, freqs, peaks);
 
         drawTime(raw, wx, Fs, N);
-        drawFreq(dB, freqs, peaks, Fs);
+        drawFreq(dB, freqs, peaks.slice(0, 3), Fs);
 
         const fmt = (pk) => pk ? `${pk.freq.toFixed(2)} Hz` : '—';
         setText('fft-readout-peak1', fmt(peaks[0]));
